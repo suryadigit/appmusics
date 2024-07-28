@@ -1,154 +1,98 @@
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:http/http.dart' as http;
+import '../models/track.dart';
+import '../services/audio_service.dart';
+import '../services/spotify_service.dart';
+import 'music_player_page.dart';
+
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({Key? key}) : super(key: key);
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
-  final TextEditingController _searchController = TextEditingController();
+class _HomePageState extends State<HomePage> {
+  late Future<List<Track>> _recommendationsFuture;
+  final AudioService _audioService = AudioService();
+  Track? _currentTrack;
   bool _isPlaying = false;
-  late AnimationController _rotationController;
 
   @override
   void initState() {
     super.initState();
-    _rotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-      value: 0.0,
-    );
+    _recommendationsFuture = getRecommendations();
   }
 
   @override
   void dispose() {
-    _rotationController.dispose();
+    _audioService.dispose();
     super.dispose();
   }
 
-  void _togglePlayPause() {
-    setState(() {
-      if (_isPlaying) {
-        _rotationController.stop();
-      } else {
-        _rotationController.repeat();
-      }
-      _isPlaying = !_isPlaying;
-    });
+  void _navigateToPlayer(Track track) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MusicPlayerPage(track: track),
+      ),
+    );
   }
 
-  void _previousSong() {
-    // Implement previous song functionality here
-  }
-
-  void _nextSong() {
-    // Implement next song functionality here
+  void _likeTrack(String trackId) async {
+    try {
+      await likeTrack(trackId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Track liked!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.only(top: 54.0, left: 16.0, right: 16.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Cari dan dengarkan musik favoritmu',
-                hintStyle: TextStyle(color: Colors.grey[800]),
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-                fillColor: Colors.grey[150],
-                filled: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20.0),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20.0),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20.0),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              style: const TextStyle(color: Colors.black),
-            ),
-          ),
-          const SizedBox(height: 20.0),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              AnimatedBuilder(
-                animation: _rotationController,
-                builder: (context, child) {
-                  return Transform.rotate(
-                    angle: _rotationController.value * 2.0 * 3.14,
-                    child: child,
-                  );
-                },
-                child: const CircleAvatar(
-                  radius: 120.0,
-                  
-                ),
-              ),
-              Positioned(
-                left: 20.0,
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.skip_previous,
-                    size: 50.0,
-                    color: Colors.white,
+      appBar: AppBar(
+        title: const Text('Spotify Recommendations'),
+      ),
+      body: FutureBuilder<List<Track>>(
+        future: _recommendationsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return const Center(child: Text('No recommendations found'));
+          } else {
+            final tracks = snapshot.data!;
+            return ListView.builder(
+              itemCount: tracks.length,
+              itemBuilder: (context, index) {
+                final track = tracks[index];
+                return ListTile(
+                  title: Text(track.name),
+                  subtitle: Text(
+                      track.artists.map((artist) => artist.name).join(', ')),
+                  trailing: IconButton(
+                    icon: Icon(Icons.favorite_border),
+                    onPressed: () {
+                      _likeTrack(track.id); // Use actual track ID
+                    },
                   ),
-                  onPressed: _previousSong,
-                ),
-              ),
-              Positioned(
-                right: 20.0,
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.skip_next,
-                    size: 50.0,
-                    color: Colors.white,
-                  ),
-                  onPressed: _nextSong,
-                ),
-              ),
-              Positioned(
-                child: IconButton(
-                  icon: Icon(
-                    _isPlaying ? Icons.pause : Icons.play_arrow,
-                    size: 50.0,
-                    color: Colors.white,
-                  ),
-                  onPressed: _togglePlayPause,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20.0),
-          Padding(
-            padding: const EdgeInsets.all(18.0),
-            child: LinearProgressIndicator(
-              value: _isPlaying ? null : 0.0,
-              backgroundColor: Colors.grey[300],
-              color: Colors.deepPurple,
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(8.0),
-              children: const [
-                // Add your list items here
-              ],
-            ),
-          ),
-        ],
+                  onTap: () {
+                    _navigateToPlayer(track); // Navigate to MusicPlayerPage
+                  },
+                );
+              },
+            );
+          }
+        },
       ),
     );
   }
